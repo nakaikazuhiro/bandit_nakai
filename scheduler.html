@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>日程調整ツール</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <style>
+    body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: auto; }
+    nav button { margin: 5px; padding: 10px; }
+    .section { display: none; margin-top: 20px; }
+    .section.active { display: block; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #f0f0f0; }
+    .result { background: #f9f9f9; padding: 10px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>日程調整ツール</h1>
+
+  <nav>
+    <button onclick="showSection('host')">① 主催者</button>
+    <button onclick="showSection('participant')">② 参加者</button>
+    <button onclick="showSection('summary')">③ 集計</button>
+  </nav>
+
+  <!-- 主催者 -->
+ <div id="host" class="section active">
+  <h2>① GAPファンド面談候補日の選択</h2>
+  <label>日付を選択：<input type="date" id="selectDate"></label>
+  <div id="timeSlots"></div>
+  <button onclick="addSelectedSlots()">この日の時間帯を追加</button>
+  <h3>選択済みの候補日時</h3>
+  <ul id="datesList"></ul>
+  <button onclick="saveSchedule()">候補日を保存</button>
+</div>
+
+  <!-- 参加者 -->
+  <div id="participant" class="section">
+    <h2>② 参加者：出欠入力</h2>
+    <form id="responseForm">
+      <label>お名前：<input type="text" id="userName" required></label>
+      <div id="options"></div>
+      <button type="submit">送信</button>
+    </form>
+    <div id="result" class="result" style="display:none;"></div>
+  </div>
+
+  <!-- 集計 -->
+  <div id="summary" class="section">
+    <h2>③ 集計：出欠状況</h2>
+    <div id="summaryArea"></div>
+    <button onclick="downloadCSV()">CSVとしてダウンロード</button>
+    <button onclick="clearData()">すべての回答をリセット</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script>
+    // ---------------- タブ切り替え ----------------
+    function showSection(id) {
+      document.querySelectorAll('.section').forEach(sec => sec.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      if (id === 'participant') renderParticipantOptions();
+      if (id === 'summary') renderSummary();
+    }
+
+    // ---------------- 主催者 ----------------
+   let selectedDates = [];
+
+function generateTimeSlots() {
+  const container = document.getElementById("timeSlots");
+  container.innerHTML = "";
+
+  // 9:00 〜 19:00 の30分刻み
+  const startHour = 9;
+  const endHour = 19;
+
+  for (let hour = startHour; hour < endHour; hour++) {
+    for (let min = 0; min < 60; min += 30) {
+      const start = new Date();
+      start.setHours(hour, min, 0, 0);
+
+      const end = new Date(start);
+      end.setMinutes(start.getMinutes() + 30);
+
+      const timeValue = `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+      const labelText = `${start.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}-${end.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
+
+      const label = document.createElement("label");
+      label.style.display = "inline-block";
+      label.style.margin = "4px";
+      label.innerHTML = `<input type="checkbox" name="timeSlot" value="${timeValue}"> ${labelText}`;
+      container.appendChild(label);
+    }
+    container.appendChild(document.createElement("br"));
+  }
+}
+
+
+document.getElementById("selectDate").addEventListener("change", generateTimeSlots);
+
+function addSelectedSlots() {
+  const dateInput = document.getElementById("selectDate").value;
+  if (!dateInput) {
+    alert("日付を選んでください。");
+    return;
+  }
+
+  const selectedTimes = Array.from(document.querySelectorAll('input[name="timeSlot"]:checked')).map(el => el.value);
+  if (selectedTimes.length === 0) {
+    alert("時間帯を1つ以上選んでください。");
+    return;
+  }
+
+  selectedTimes.forEach(time => {
+    const dateTimeStr = `${dateInput}T${time}:00`;
+    const isoStr = new Date(dateTimeStr).toISOString();
+    if (!selectedDates.includes(isoStr)) {
+      selectedDates.push(isoStr);
+    }
+  });
+
+  updateDatesList();
+}
+
+function updateDatesList() {
+  const ul = document.getElementById("datesList");
+  ul.innerHTML = selectedDates
+    .sort()
+    .map(d => `<li>${new Date(d).toLocaleString('ja-JP', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })}</li>`).join('');
+}
+
+function saveSchedule() {
+  if (selectedDates.length === 0) {
+    alert("候補日を選んでください。");
+    return;
+  }
+  localStorage.setItem("pollSchedule", JSON.stringify(selectedDates));
+  alert("候補日を保存しました！");
+}
+
+
+    // ---------------- 参加者 ----------------
+    function renderParticipantOptions() {
+  const optionsDiv = document.getElementById("options");
+  optionsDiv.innerHTML = '';
+  const data = JSON.parse(localStorage.getItem("pollSchedule") || "[]");
+
+  if (data.length === 0) {
+    optionsDiv.innerHTML = "<p style='color:red;'>主催者がまだ日程を登録していません。</p>";
+    return;
+  }
+
+  // 曜日表記用の配列
+  const weekdays = [ "月", "火", "水", "木", "金"];
+
+  // Step 1: 日付ごとにグループ化（年を除く、月/日＋曜日）
+  const grouped = {};
+  data.forEach(d => {
+    const dateObj = new Date(d);
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const weekday = weekdays[dateObj.getDay()];
+    const dateKey = `${month}/${day}（${weekday}）`;
+
+    const timeStr = dateObj.toLocaleTimeString('ja-JP', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    if (!grouped[dateKey]) {
+      grouped[dateKey] = [];
+    }
+
+    grouped[dateKey].push({
+      value: d,
+      time: timeStr
+    });
+  });
+
+  // Step 2: 日付順に並べて表示（内部的にはISO日付でソート）
+  const sortedDates = Object.entries(grouped).sort((a, b) => {
+    const aDate = new Date(a[1][0].value);
+    const bDate = new Date(b[1][0].value);
+    return aDate - bDate;
+  });
+
+  sortedDates.forEach(([dateLabel, times]) => {
+    const section = document.createElement("div");
+    section.innerHTML = `<strong>■ ${dateLabel}</strong><br>`;
+
+    // 時刻順に並べてチェックボックス作成
+    times.sort((a, b) => new Date(a.value) - new Date(b.value)).forEach(({ value, time }) => {
+      const label = document.createElement("label");
+      label.innerHTML = `<input type="checkbox" name="availability" value="${value}"> ${time}`;
+      section.appendChild(label);
+      section.appendChild(document.createElement("br"));
+    });
+
+    optionsDiv.appendChild(section);
+  });
+}
+
+    document.getElementById("responseForm").addEventListener("submit", function(e) {
+      e.preventDefault();
+      const name = document.getElementById("userName").value;
+      const selected = Array.from(document.querySelectorAll('input[name="availability"]:checked')).map(el => el.value);
+
+      if (selected.length === 0) {
+        alert("1つ以上選択してください。");
+        return;
+      }
+
+      const existing = JSON.parse(localStorage.getItem("pollResponses") || "[]");
+      existing.push({ name: name, dates: selected });
+      localStorage.setItem("pollResponses", JSON.stringify(existing));
+
+      document.getElementById("result").style.display = "block";
+      document.getElementById("result").innerHTML = `
+        <h3>送信内容</h3>
+        <p><strong>名前：</strong>${name}</p>
+        <p><strong>可能な日時：</strong></p>
+        <ul>${selected.map(d => `<li>${new Date(d).toLocaleString('ja-JP', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</li>`).join('')}</ul>
+      `;
+      document.getElementById("responseForm").style.display = "none";
+    });
+
+    // ---------------- 集計 ----------------
+    function renderSummary() {
+      const data = JSON.parse(localStorage.getItem("pollResponses") || "[]");
+      const schedule = JSON.parse(localStorage.getItem("pollSchedule") || "[]");
+      const area = document.getElementById("summaryArea");
+
+      if (data.length === 0 || schedule.length === 0) {
+        area.innerHTML = "<p>まだ回答または候補日がありません。</p>";
+        return;
+      }
+
+      let html = "<table><thead><tr><th>名前</th>";
+      schedule.forEach(d => {
+        html += `<th>${new Date(d).toLocaleString('ja-JP', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</th>`;
+      });
+      html += "</tr></thead><tbody>";
+
+      data.forEach(entry => {
+        html += `<tr><td>${entry.name}</td>`;
+        schedule.forEach(date => {
+          const mark = entry.dates.includes(date) ? "✅" : "";
+          html += `<td>${mark}</td>`;
+        });
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+      area.innerHTML = html;
+    }
+
+    function clearData() {
+      if (confirm("すべての回答を削除しますか？")) {
+        localStorage.removeItem("pollResponses");
+        renderSummary();
+      }
+    }
+
+    function downloadCSV() {
+      const data = JSON.parse(localStorage.getItem("pollResponses") || "[]");
+      const schedule = JSON.parse(localStorage.getItem("pollSchedule") || "[]");
+
+      if (data.length === 0 || schedule.length === 0) {
+        alert("保存されたデータがありません。");
+        return;
+      }
+
+      let csv = "名前," + schedule.map(d => `"${new Date(d).toLocaleString('ja-JP', {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}"`).join(",") + "\n";
+
+      data.forEach(entry => {
+        const row = [entry.name];
+        schedule.forEach(d => {
+          row.push(entry.dates.includes(d) ? "○" : "");
+        });
+        csv += row.join(",") + "\n";
+      });
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "attendance_summary.csv";
+      link.click();
+    }
+  </script>
+</body>
+</html>
