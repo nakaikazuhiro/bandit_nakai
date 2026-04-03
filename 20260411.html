@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多腕バンディット問題 デモンストレーション</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 { color: #2c3e50; }
+        p.description {
+            background: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            text-align: left;
+            line-height: 1.6;
+        }
+        .machines {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 30px;
+        }
+        .machine {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 30px 20px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 30%;
+            transition: transform 0.1s, background-color 0.3s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .machine:active {
+            transform: translateY(4px);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .machine:hover { background-color: #2980b9; }
+        .machine .true-prob {
+            display: none;
+            font-size: 14px;
+            color: #ffeb3b;
+            margin-top: 10px;
+        }
+        
+        #result-display {
+            font-size: 28px;
+            font-weight: bold;
+            height: 40px;
+            margin-bottom: 20px;
+            color: #e74c3c;
+        }
+
+        .stats-container {
+            display: flex;
+            justify-content: space-around;
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .stat-box { width: 30%; }
+        .stat-box h3 { margin-top: 0; color: #2c3e50; font-size: 18px;}
+        .stat-value { font-size: 24px; font-weight: bold; color: #16a085; }
+        
+        .controls { margin-top: 20px; }
+        button.control-btn {
+            background-color: #95a5a6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+        }
+        button.control-btn:hover { background-color: #7f8c8d; }
+    </style>
+</head>
+<body>
+
+    <h1>多腕バンディット問題 デモ</h1>
+    
+    <p class="description">
+        <strong>【ルール】</strong> 3つのスロットマシン（A, B, C）があります。それぞれ「当たる確率」が異なりますが、最初は確率がわかりません。<br>
+        限られた回数の中で、あなたは<strong>「一番当たりやすいマシンを探す（探索）」</strong>べきか、それとも<strong>「今まで一番当たっているマシンを引き続ける（利用）」</strong>べきでしょうか？
+    </p>
+
+    <div id="result-display">マシンを選んでください</div>
+
+    <div class="machines">
+        <button class="machine" onclick="play(0)">
+            マシン A
+            <div class="true-prob">真の確率: <span id="prob-0"></span>%</div>
+        </button>
+        <button class="machine" onclick="play(1)">
+            マシン B
+            <div class="true-prob">真の確率: <span id="prob-1"></span>%</div>
+        </button>
+        <button class="machine" onclick="play(2)">
+            マシン C
+            <div class="true-prob">真の確率: <span id="prob-2"></span>%</div>
+        </button>
+    </div>
+
+    <div class="stats-container">
+        <div class="stat-box">
+            <h3>マシン A</h3>
+            <p>プレイ: <span id="plays-0" class="stat-value">0</span> 回</p>
+            <p>当たり: <span id="wins-0" class="stat-value">0</span> 回</p>
+            <p>勝率: <span id="rate-0">0</span>%</p>
+        </div>
+        <div class="stat-box">
+            <h3>マシン B</h3>
+            <p>プレイ: <span id="plays-1" class="stat-value">0</span> 回</p>
+            <p>当たり: <span id="wins-1" class="stat-value">0</span> 回</p>
+            <p>勝率: <span id="rate-1">0</span>%</p>
+        </div>
+        <div class="stat-box">
+            <h3>マシン C</h3>
+            <p>プレイ: <span id="plays-2" class="stat-value">0</span> 回</p>
+            <p>当たり: <span id="wins-2" class="stat-value">0</span> 回</p>
+            <p>勝率: <span id="rate-2">0</span>%</p>
+        </div>
+    </div>
+
+    <div>
+        <h2>合計獲得スコア: <span id="total-wins" style="color:#e67e22; font-size: 32px;">0</span> / <span id="total-plays">0</span> 回</h2>
+    </div>
+
+    <div class="controls">
+        <button class="control-btn" onclick="toggleProbabilities()">真の確率をネタばらし</button>
+        <button class="control-btn" onclick="resetGame()">ゲームをリセット (確率を再設定)</button>
+    </div>
+
+    <script>
+        // 設定値
+        let probabilities = [0, 0, 0];
+        let plays = [0, 0, 0];
+        let wins = [0, 0, 0];
+        let totalPlays = 0;
+        let totalWins = 0;
+        let isRevealed = false;
+
+        // 初期化関数
+        function initGame() {
+            // 10%〜90%の間でランダムな確率を3つ設定
+            probabilities = [
+                Math.floor(Math.random() * 81) + 10,
+                Math.floor(Math.random() * 81) + 10,
+                Math.floor(Math.random() * 81) + 10
+            ];
+            
+            // 確率の表示を更新
+            for(let i=0; i<3; i++) {
+                document.getElementById(`prob-${i}`).innerText = probabilities[i];
+            }
+        }
+
+        // マシンをプレイする関数
+        function play(machineIndex) {
+            totalPlays++;
+            plays[machineIndex]++;
+            
+            const randomValue = Math.random() * 100;
+            const isWin = randomValue <= probabilities[machineIndex];
+            
+            const resultDisplay = document.getElementById('result-display');
+            
+            if (isWin) {
+                wins[machineIndex]++;
+                totalWins++;
+                resultDisplay.innerText = "🎉 当たり！！ 🎉";
+                resultDisplay.style.color = "#27ae60";
+            } else {
+                resultDisplay.innerText = "❌ ハズレ ❌";
+                resultDisplay.style.color = "#e74c3c";
+            }
+
+            updateStats();
+        }
+
+        // 統計情報を画面に反映する関数
+        function updateStats() {
+            for(let i=0; i<3; i++) {
+                document.getElementById(`plays-${i}`).innerText = plays[i];
+                document.getElementById(`wins-${i}`).innerText = wins[i];
+                
+                let rate = plays[i] > 0 ? Math.round((wins[i] / plays[i]) * 100) : 0;
+                document.getElementById(`rate-${i}`).innerText = rate;
+            }
+            document.getElementById('total-plays').innerText = totalPlays;
+            document.getElementById('total-wins').innerText = totalWins;
+        }
+
+        // 真の確率の表示/非表示を切り替える
+        function toggleProbabilities() {
+            const probElements = document.querySelectorAll('.true-prob');
+            isRevealed = !isRevealed;
+            probElements.forEach(el => {
+                el.style.display = isRevealed ? 'block' : 'none';
+            });
+        }
+
+        // ゲームをリセットする
+        function resetGame() {
+            plays = [0, 0, 0];
+            wins = [0, 0, 0];
+            totalPlays = 0;
+            totalWins = 0;
+            document.getElementById('result-display').innerText = "マシンを選んでください";
+            document.getElementById('result-display').style.color = "#e74c3c";
+            
+            if (isRevealed) toggleProbabilities();
+            initGame();
+            updateStats();
+        }
+
+        // ページ読み込み時に初期化
+        initGame();
+    </script>
+</body>
+</html>
